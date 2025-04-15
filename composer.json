@@ -1,0 +1,10 @@
+{
+    "name": "amund/wp-polylang-deepl",
+    "type": "wordpress-plugin",
+    "description": "Automatic translation of posts and medias using Polylang and Deepl api.",
+    "homepage": "https://github.com/Amund/wp-polylang-deepl",
+    "require": {
+        "php": ">=8.1",
+        "deeplcom/deepl-php": "^1.11"
+    }
+}
