@@ -33,6 +33,9 @@ class VP_Polylang_Deepl
     {
         // put all references to translatable strings in the collector
         foreach ($blocks as &$block) {
+            if (!isset($block['attrs']['data']) || !is_array($block['attrs']['data'])) {
+                continue;
+            }
             foreach ($block['attrs']['data'] as $key => $value) {
                 if (!str_starts_with($key, '_') && !empty($value) && is_string($value) && !is_numeric($value)) {
                     $collector[] = &$block['attrs']['data'][$key];
