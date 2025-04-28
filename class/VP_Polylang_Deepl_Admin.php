@@ -70,7 +70,7 @@ class VP_Polylang_Deepl_Admin
             }
         }
 
-        echo vp::render([
+        echo html::render([
             'tag' => 'div',
             'class' => 'wrap',
             'content' => [
