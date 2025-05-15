@@ -1,7 +1,7 @@
 {
     "name": "amund/wp-polylang-deepl",
     "type": "wordpress-plugin",
-    "description": "Automatic translation of posts and medias using Polylang and Deepl api.",
+    "description": "Traduction automatique des posts Gutenberg avec Polylang et l'api Deepl.",
     "homepage": "https://github.com/Amund/wp-polylang-deepl",
     "require": {
         "php": ">=8.1",

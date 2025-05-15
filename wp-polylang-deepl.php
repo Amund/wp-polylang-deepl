@@ -3,9 +3,8 @@
 /**
  * Plugin Name:       Polylang Deepl
  * Plugin URI:        https://github.com/Amund/wp-polylang-deepl
- * Description:       Automatic translation of posts using Polylang and Deepl.
- * Version:           1.0.0
- * Requires at least: 6.1
+ * Description:       Traduction automatique des posts Gutenberg avec Polylang et l'api Deepl.
+ * Requires at least: 6.4
  * Requires PHP:      8.1
  * Author:            Dimitri Avenel
  * License:           MIT
@@ -15,17 +14,15 @@ if (!defined('ABSPATH')) {
     exit();
 }
 
-require_once 'class/VP_Polylang_Deepl.php';
-VP_Polylang_Deepl::init();
+define('POLYLANG_DEEPL_PLUGIN_NAME', plugin_basename(__DIR__));
+define('POLYLANG_DEEPL_PLUGIN_PATH', plugin_dir_path(__FILE__));
+define('POLYLANG_DEEPL_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('POLYLANG_DEEPL_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
-// admin
-if (is_admin()) {
-    require_once 'class/VP_Polylang_Deepl_Admin.php';
-    VP_Polylang_Deepl_Admin::init();
-    $plugin = plugin_basename(__FILE__);
-    add_filter("plugin_action_links_$plugin", function ($links) {
-        $settings_link = '<a href="admin.php?page=vp-polylang-deepl">' . __('Settings') . '</a>';
-        array_push($links, $settings_link);
-        return $links;
-    });
-}
+add_action('init', function () {
+    if (is_admin() && current_user_can('edit_posts')) {
+        require_once 'class/Polylang_Deepl.php';
+        require_once 'class/Polylang_Deepl_Admin.php';
+        Polylang_Deepl_Admin::init();
+    }
+});

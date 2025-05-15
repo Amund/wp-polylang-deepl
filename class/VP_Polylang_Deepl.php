@@ -1,32 +1,70 @@
 <?php
 
-class VP_Polylang_Deepl
+class Polylang_Deepl
 {
-    static function init()
-    {
-        if (self::is_active()) {
-            // add_action('admin_menu', [static::class, 'admin_menu'], 9999);
-        }
-    }
-
-    static function is_active()
+    static function is_active(): bool
     {
         return self::check_polylang() && self::check_deepl_library() && self::check_deepl_api();
     }
 
-    static function check_polylang()
+    static function check_polylang(): bool
     {
         return class_exists('Polylang');
     }
 
-    static function check_deepl_library()
+    static function check_deepl_library(): bool
     {
         return class_exists('\DeepL\DeepLClient');
     }
 
-    static function check_deepl_api()
+    static function check_deepl_api(): bool
     {
         return isset($_ENV['DEEPL']) && !empty($_ENV['DEEPL']);
+    }
+
+    static function can_translate_post($post_id): bool
+    {
+        // current post
+        $post = get_post($post_id);
+        if (!$post) {
+            return false;
+        }
+
+        // default language
+        $default_lang = pll_default_language('slug');
+        if (!$default_lang) {
+            return false;
+        }
+
+        // current language
+        $lang = pll_get_post_language($post->ID, 'slug');
+        if (!$lang) {
+            return false;
+        }
+
+        // only translate if not default language
+        if ($lang === $default_lang) {
+            return false;
+        }
+
+        // get default language post
+        $default_post_id = pll_get_post($post->ID, $default_lang);
+        $default_post = get_post($default_post_id);
+        if (!$default_post) {
+            return false;
+        }
+
+        return true;
+    }
+
+    static function normalize_to_deepl_lang_code(string $lang_code): string
+    {
+        if (in_array($lang_code, ['en_GB', 'en_US', 'pt_BR', 'pt_PT'])) {
+            $lang_code = str_replace('_', '-', $lang_code);
+        } else {
+            $lang_code = substr($lang_code, 0, 2);
+        }
+        return $lang_code;
     }
 
     static function translate_blocks_collect(array &$blocks, array &$collector)
@@ -48,118 +86,85 @@ class VP_Polylang_Deepl
         }
     }
 
-    static function pll_save_post($post_id, $post, $translations)
+    static function translate_post(int $post_id): void
     {
-        if (empty($_REQUEST['from_post']) || empty($_REQUEST['new_lang'])) {
-            return;
+        if (empty($post_id)) {
+            throw new Exception('post cible inconnu');
         }
 
-        if (
-            isset($translations[$_REQUEST['new_lang']]) &&
-            $translations[$_REQUEST['new_lang']] == $post_id &&
-            !empty($_ENV['DEEPL']) &&
-            class_exists('\DeepL\DeepLClient') &&
-            !defined('TRANSLATED')
-        ) {
-            // get source
-            $from_lang = pll_get_post_language($_REQUEST['from_post'], 'slug');
-            $from_post = get_post($_REQUEST['from_post']);
-            $from_content = $from_post->post_content;
-
-            // normalize language code to match deepl api requirements
-            $to_lang = pll_get_post_language($post->ID, 'locale');
-            if (in_array($to_lang, ['en_GB', 'en_US', 'pt_BR', 'pt_PT'])) {
-                $to_lang = str_replace('_', '-', $to_lang);
-            } else {
-                $to_lang = substr($to_lang, 0, 2);
-            }
-
-            // collect all references of strings to translate
-            $collector = [];
-
-            if (!empty($from_post->post_title)) {
-                $post->post_title = (string) $from_post->post_title;
-                $collector[] = &$post->post_title;
-            }
-
-            $blocks = null;
-            if (has_blocks($from_content)) {
-                $blocks = parse_blocks($from_content);
-                self::translate_blocks_collect($blocks, $collector);
-            }
-
-            if (!empty($collector)) {
-                // translate all strings
-                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-                $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
-
-                // replace all referenced strings with translated strings
-                foreach ($collector as $index => &$reference) {
-                    $reference = $translated[$index]->text;
-                }
-
-                // update post content with translated blocks
-                if ($blocks !== null) {
-                    $post->post_content = serialize_blocks($blocks);
-                }
-
-                // prevent translating loop
-                define('TRANSLATED', 1);
-                $post->post_status = 'draft';
-
-                // save translated post
-                wp_update_post($post, false, false);
-            }
+        $post = get_post($post_id);
+        if (!$post) {
+            throw new Exception('post cible non trouvé');
         }
-    }
 
-    static function pll_translate_media($from_id, $to_id, $lang)
-    {
-        $from_lang = pll_get_post_language($from_id, 'slug');
-
-        // normalize language code to match deepl api requirements
-        $to_lang = pll_get_post_language($to_id, 'locale');
-        if (in_array($to_lang, ['en_GB', 'en_US', 'pt_BR', 'pt_PT'])) {
-            $to_lang = str_replace('_', '-', $to_lang);
-        } else {
-            $to_lang = substr($to_lang, 0, 2);
+        $from_lang = pll_default_language('slug');
+        if (!$from_lang) {
+            throw new Exception('langue source non trouvée');
         }
-        $to_post = get_post($to_id);
+
+        $to_lang = pll_get_post_language($post->ID, 'locale');
+        if (!$to_lang) {
+            throw new Exception('langue cible non trouvée');
+        }
+        $to_lang = self::normalize_to_deepl_lang_code($to_lang);
+
+        if ($from_lang === $to_lang) {
+            throw new Exception('langues source et cible identiques');
+        }
+
+        $from_post_id = pll_get_post($post->ID, $from_lang);
+        $from_post = get_post($from_post_id);
+        if (!$from_post) {
+            throw new Exception('post source non trouvé');
+        }
 
         // collect all references of strings to translate
         $collector = [];
 
-        if (!empty($to_post->post_title)) { // title
-            $collector[] = &$to_post->post_title;
+        // title
+        if (!empty($from_post->post_title)) {
+            $post->post_title = (string) $from_post->post_title;
+            $collector[] = &$post->post_title;
         }
-        if (!empty($to_post->post_content)) { // description
-            $collector[] = &$to_post->post_content;
+
+        // excerpt
+        if (!empty($from_post->post_excerpt)) {
+            $post->post_excerpt = (string) $from_post->post_excerpt;
+            $collector[] = &$post->post_excerpt;
         }
-        if (!empty($to_post->post_excerpt)) { // legend
-            $collector[] = &$to_post->post_excerpt;
-        }
-        $alt = null;
-        if (!empty($to_post->_wp_attachment_image_alt)) { // alt
-            $alt = (string) $to_post->_wp_attachment_image_alt;
-            $collector[] = &$alt;
+
+        // content
+        $blocks = null;
+        $from_content = $from_post->post_content;
+        if (has_blocks($from_content)) {
+            $blocks = parse_blocks($from_content);
+            self::translate_blocks_collect($blocks, $collector);
         }
 
         if (!empty($collector)) {
             // translate all strings
-            $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-            $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+            try {
+                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+                $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+            } catch (\DeepL\DeepLException $e) {
+                throw new Exception('DeepL api: ' . $e->getMessage());
+            }
 
             // replace all referenced strings with translated strings
             foreach ($collector as $index => &$reference) {
                 $reference = $translated[$index]->text;
             }
 
-            // save translated post
-            wp_update_post($to_post, false, false);
-
-            if (!empty($alt)) {
-                update_post_meta($to_id, '_wp_attachment_image_alt', $alt);
+            // update post content with translated blocks
+            if ($blocks !== null) {
+                $post->post_content = serialize_blocks($blocks);
             }
+
+            // update post slug
+            $post->post_name = sanitize_title($post->post_title);
+
+            // save translated post
+            wp_update_post($post, false, false);
         }
     }
 }
