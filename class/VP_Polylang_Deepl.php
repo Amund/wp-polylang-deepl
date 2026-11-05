@@ -58,6 +58,10 @@ class VP_Polylang_Deepl
     {
         // put all references to translatable strings in the collector
         foreach ($blocks as &$block) {
+            // recursive call for inner blocks, whatever the parent block is (core/group, core/columns...)
+            if (!empty($block['innerBlocks'])) {
+                self::translate_blocks_collect($block['innerBlocks'], $collector);
+            }
             if (!isset($block['attrs']['data']) || !is_array($block['attrs']['data'])) {
                 continue;
             }
@@ -66,11 +70,49 @@ class VP_Polylang_Deepl
                     $collector[] = &$block['attrs']['data'][$key];
                 }
             }
-            // recursive call for inner blocks
-            if (!empty($block['innerBlocks'])) {
-                self::translate_blocks_collect($block['innerBlocks'], $collector);
+        }
+    }
+
+    // DeepL API limits: 50 texts and 128 KiB per request
+    const MAX_TEXTS_PER_REQUEST = 50;
+    const MAX_BYTES_PER_REQUEST = 100 * 1024; // margin for request overhead
+
+    // split texts into chunks respecting DeepL request limits
+    static function chunk_texts(array $texts)
+    {
+        $chunks = [];
+        $chunk = [];
+        $bytes = 0;
+        foreach ($texts as $text) {
+            $size = strlen((string) $text);
+            if (!empty($chunk) && (count($chunk) >= self::MAX_TEXTS_PER_REQUEST || $bytes + $size > self::MAX_BYTES_PER_REQUEST)) {
+                $chunks[] = $chunk;
+                $chunk = [];
+                $bytes = 0;
+            }
+            $chunk[] = (string) $text;
+            $bytes += $size;
+        }
+        if (!empty($chunk)) {
+            $chunks[] = $chunk;
+        }
+        return $chunks;
+    }
+
+    // translate a list of texts, returns translated strings in the same order
+    static function translate_texts(array $texts, string $from_lang, string $to_lang)
+    {
+        $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+        $translated = [];
+        foreach (self::chunk_texts($texts) as $chunk) {
+            foreach ($deeplClient->translateText($chunk, $from_lang, $to_lang) as $result) {
+                $translated[] = $result->text;
             }
         }
+        if (count($translated) !== count($texts)) {
+            throw new \RuntimeException('DeepL returned ' . count($translated) . ' texts for ' . count($texts) . ' sent');
+        }
+        return $translated;
     }
 
     static function pll_save_post($post_id, $post, $translations)
@@ -116,12 +158,11 @@ class VP_Polylang_Deepl
             if (!empty($collector)) {
                 // translate all strings, leave the post untouched on any failure
                 try {
-                    $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-                    $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+                    $translated = self::translate_texts($collector, $from_lang, $to_lang);
 
                     // replace all referenced strings with translated strings
                     foreach ($collector as $index => &$reference) {
-                        $reference = $translated[$index]->text;
+                        $reference = $translated[$index];
                     }
                     unset($reference);
                 } catch (\Throwable $e) {
@@ -178,12 +219,11 @@ class VP_Polylang_Deepl
         if (!empty($collector)) {
             // translate all strings, leave the media untouched on any failure
             try {
-                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-                $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+                $translated = self::translate_texts($collector, $from_lang, $to_lang);
 
                 // replace all referenced strings with translated strings
                 foreach ($collector as $index => &$reference) {
-                    $reference = $translated[$index]->text;
+                    $reference = $translated[$index];
                 }
                 unset($reference);
             } catch (\Throwable $e) {
