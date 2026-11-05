@@ -26,7 +26,23 @@ class VP_Polylang_Deepl
 
     static function check_deepl_api()
     {
-        return isset($_ENV['DEEPL']) && !empty($_ENV['DEEPL']);
+        return self::api_key() !== '';
+    }
+
+    // DeepL API key: $_ENV (Bedrock dotenv), then real environment variable, then DEEPL constant
+    static function api_key(): string
+    {
+        if (!empty($_ENV['DEEPL'])) {
+            return (string) $_ENV['DEEPL'];
+        }
+        $env = getenv('DEEPL');
+        if (!empty($env)) {
+            return (string) $env;
+        }
+        if (defined('DEEPL') && !empty(constant('DEEPL'))) {
+            return (string) constant('DEEPL');
+        }
+        return '';
     }
 
     static function report_error(string $context, \Throwable $e, bool $notify_user)
@@ -141,7 +157,7 @@ class VP_Polylang_Deepl
     // translate a list of texts, returns translated strings in the same order
     static function translate_texts(array $texts, string $from_lang, string $to_lang)
     {
-        $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+        $deeplClient = new \DeepL\DeepLClient(VP_Polylang_Deepl::api_key());
         $translated = [];
         foreach (self::chunk_texts($texts) as $chunk) {
             foreach ($deeplClient->translateText($chunk, $from_lang, $to_lang) as $result) {
@@ -163,7 +179,7 @@ class VP_Polylang_Deepl
         if (
             isset($translations[$_REQUEST['new_lang']]) &&
             $translations[$_REQUEST['new_lang']] == $post_id &&
-            !empty($_ENV['DEEPL']) &&
+            self::check_deepl_api() &&
             class_exists('\DeepL\DeepLClient') &&
             !defined('TRANSLATED')
         ) {

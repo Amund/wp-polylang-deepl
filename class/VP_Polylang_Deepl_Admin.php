@@ -70,13 +70,13 @@ class VP_Polylang_Deepl_Admin
                 $check_deepl_api = [
                     'tag' => 'p',
                     'class' => 'notice notice-warning',
-                    'content' => 'La clé d\'API Deepl n\'est pas définie. Veuillez ajouter la variable d\'environnement <code>DEEPL="ma-cle-api"</code>)',
+                    'content' => 'La clé d\'API Deepl n\'est pas définie. Veuillez ajouter la variable d\'environnement <code>DEEPL="ma-cle-api"</code> ou la constante <code>define(\'DEEPL\', \'ma-cle-api\')</code>.',
                 ];
             }
         } else {
             $usage = null;
             try {
-                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+                $deeplClient = new \DeepL\DeepLClient(VP_Polylang_Deepl::api_key());
                 $usage = $deeplClient->getUsage();
             } catch (\Throwable $e) {
                 VP_Polylang_Deepl::report_error('usage', $e, false);
