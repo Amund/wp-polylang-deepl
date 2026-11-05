@@ -40,87 +40,53 @@ class VP_Polylang_Deepl_Admin
         }
     }
 
-    static function admin_menu($wp_admin_bar)
+    static function admin_menu()
     {
         add_submenu_page('mlang', 'VP Polylang Deepl', 'Deepl auto-translate', 'manage_options', 'vp-polylang-deepl', [static::class, 'render'], 9999);
     }
 
     static function render()
     {
-        $check_polylang = '';
-        $check_deepl_library = '';
-        $check_deepl_api = '';
-        $status_deepl = '';
+        // list of [type, html message], type is a WordPress notice type (warning, error, success)
+        $notices = [];
+
         if (!VP_Polylang_Deepl::is_active()) {
             if (!VP_Polylang_Deepl::check_deepl_library()) {
-                $check_deepl_library = [
-                    'tag' => 'p',
-                    'class' => 'notice notice-warning',
-                    'content' => 'Deepl n\'est pas chargé. Veuillez l\'ajouter avec <code>make composer require deeplcom/deepl-php</code>'
-                ];
+                $notices[] = ['warning', 'Deepl n\'est pas chargé. Veuillez l\'ajouter avec <code>make composer require deeplcom/deepl-php</code>'];
             }
             if (!VP_Polylang_Deepl::check_polylang()) {
-                $check_polylang = [
-                    'tag' => 'p',
-                    'class' => 'notice notice-warning',
-                    'content' => 'L\'extension Polylang n\'est pas active.',
-                ];
+                $notices[] = ['warning', 'L\'extension Polylang n\'est pas active.'];
             }
             if (!VP_Polylang_Deepl::check_deepl_api()) {
-                $check_deepl_api = [
-                    'tag' => 'p',
-                    'class' => 'notice notice-warning',
-                    'content' => 'La clé d\'API Deepl n\'est pas définie. Veuillez ajouter la variable d\'environnement <code>DEEPL="ma-cle-api"</code> ou la constante <code>define(\'DEEPL\', \'ma-cle-api\')</code>.',
-                ];
+                $notices[] = ['warning', 'La clé d\'API Deepl n\'est pas définie. Veuillez ajouter la variable d\'environnement <code>DEEPL="ma-cle-api"</code> ou la constante <code>define(\'DEEPL\', \'ma-cle-api\')</code>.'];
             }
         } else {
-            $usage = null;
             try {
                 $deeplClient = new \DeepL\DeepLClient(VP_Polylang_Deepl::api_key());
                 $usage = $deeplClient->getUsage();
+                if ($usage->character) {
+                    $count = number_format($usage->character->count, 0, ',', ' ');
+                    $limit = number_format($usage->character->limit, 0, ',', ' ');
+                    if ($usage->character->count >= $usage->character->limit) {
+                        $notices[] = ['warning', 'Quota DeepL atteint : ' . $count . ' / ' . $limit . ' caractères. Les nouvelles traductions automatiques échoueront.'];
+                    } else {
+                        $notices[] = ['success', 'Caractères utilisés : ' . $count . ' / ' . $limit];
+                    }
+                } else {
+                    $notices[] = ['warning', 'Impossible de récupérer les informations d\'utilisation de Deepl.'];
+                }
             } catch (\Throwable $e) {
                 VP_Polylang_Deepl::report_error('usage', $e, false);
-                $status_deepl = [
-                    'tag' => 'p',
-                    'class' => 'notice notice-error',
-                    'content' => 'Impossible de contacter DeepL : ' . esc_html($e->getMessage()),
-                ];
-            }
-            if ($usage === null) {
-                // error already reported above
-            } elseif ($usage->character) {
-                $count = number_format($usage->character->count, 0, ',', ' ');
-                $limit = number_format($usage->character->limit, 0, ',', ' ');
-                if ($usage->character->count >= $usage->character->limit) {
-                    $class = 'notice notice-warning';
-                } else {
-                    $class = 'notice notice-success';
-                    $status_deepl = [
-                        'tag' => 'p',
-                        'class' => $class,
-                        'content' => 'Caractères utilisés : ' . $count . ' / ' . $limit,
-                    ];
-                }
-            } else {
-                $status_deepl = [
-                    'tag' => 'p',
-                    'class' => 'notice notice-warning',
-                    'content' => 'Impossible de récupérer les informations d\'utilisation de Deepl.',
-                ];
+                $notices[] = ['error', 'Impossible de contacter DeepL : ' . esc_html($e->getMessage())];
             }
         }
 
-        echo html::render([
-            'tag' => 'div',
-            'class' => 'wrap',
-            'content' => [
-                ['tag' => 'h1', 'content' => 'Vupar: Deepl auto-translate'],
-                ['tag' => 'p', 'content' => 'Effectue une traduction automatique des posts et médias en utilisant Deepl lors de l\'ajout d\'une traduction.'],
-                $check_deepl_library,
-                $check_polylang,
-                $check_deepl_api,
-                $status_deepl,
-            ],
-        ]);
+        echo '<div class="wrap">';
+        echo '<h1>Vupar: Deepl auto-translate</h1>';
+        echo '<p>Effectue une traduction automatique des posts et médias en utilisant Deepl lors de l\'ajout d\'une traduction.</p>';
+        foreach ($notices as [$type, $message]) {
+            echo '<div class="notice notice-' . esc_attr($type) . ' inline"><p>' . $message . '</p></div>';
+        }
+        echo '</div>';
     }
 }

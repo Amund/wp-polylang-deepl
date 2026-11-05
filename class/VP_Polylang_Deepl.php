@@ -2,12 +2,8 @@
 
 class VP_Polylang_Deepl
 {
-    static function init()
-    {
-        if (self::is_active()) {
-            // add_action('admin_menu', [static::class, 'admin_menu'], 9999);
-        }
-    }
+    // true while a translated post is being saved, prevents translation loops
+    private static bool $translating = false;
 
     static function is_active()
     {
@@ -181,7 +177,7 @@ class VP_Polylang_Deepl
             $translations[$_REQUEST['new_lang']] == $post_id &&
             self::check_deepl_api() &&
             class_exists('\DeepL\DeepLClient') &&
-            !defined('TRANSLATED')
+            !self::$translating
         ) {
             // get source, only if it exists and the current user is allowed to read it
             $from_id = (int) $_REQUEST['from_post'];
@@ -228,7 +224,7 @@ class VP_Polylang_Deepl
                 }
 
                 // prevent translating loop
-                define('TRANSLATED', 1);
+                self::$translating = true;
                 $post->post_status = 'draft';
 
                 // save translated post
