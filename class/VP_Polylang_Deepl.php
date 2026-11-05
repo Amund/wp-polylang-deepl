@@ -66,11 +66,28 @@ class VP_Polylang_Deepl
                 continue;
             }
             foreach ($block['attrs']['data'] as $key => $value) {
-                if (!str_starts_with($key, '_') && !empty($value) && is_string($value) && !is_numeric($value)) {
+                if (
+                    !str_starts_with($key, '_') && !empty($value) && is_string($value) && !is_numeric($value) &&
+                    self::is_translatable_field($block['attrs']['data'], (string) $key)
+                ) {
                     $collector[] = &$block['attrs']['data'][$key];
                 }
             }
         }
+    }
+
+    // only translate ACF fields whose value is reader-facing text (not select values, urls, colors...)
+    static function is_translatable_field(array $data, string $key): bool
+    {
+        // ACF stores the field key in "_<name>", or sometimes uses the field key as data key
+        $field_key = $data['_' . $key] ?? (str_starts_with($key, 'field_') ? $key : null);
+        $field = (is_string($field_key) && function_exists('acf_get_field')) ? acf_get_field($field_key) : false;
+
+        if (empty($field['type'])) {
+            return true; // unknown field type: keep previous behavior
+        }
+        $types = apply_filters('vp_polylang_deepl_translatable_field_types', ['text', 'textarea', 'wysiwyg']);
+        return in_array($field['type'], (array) $types, true);
     }
 
     // DeepL API limits: 50 texts and 128 KiB per request
