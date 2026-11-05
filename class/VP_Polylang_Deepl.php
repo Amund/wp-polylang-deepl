@@ -183,8 +183,12 @@ class VP_Polylang_Deepl
             class_exists('\DeepL\DeepLClient') &&
             !defined('TRANSLATED')
         ) {
-            // get source
-            $from_post = get_post($_REQUEST['from_post']);
+            // get source, only if it exists and the current user is allowed to read it
+            $from_id = (int) $_REQUEST['from_post'];
+            $from_post = get_post($from_id);
+            if (!$from_post || !current_user_can('read_post', $from_id)) {
+                return;
+            }
             $from_content = $from_post->post_content;
 
             // collect all references of strings to translate
