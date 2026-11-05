@@ -1,31 +1,64 @@
 <?php
 
+/**
+ * Automatic translation of posts and medias with DeepL, when Polylang creates a translation.
+ *
+ * Posts: when a translation is added from the Polylang interface (post-new.php?from_post=…&new_lang=…),
+ * the title and the text fields of the source post's ACF blocks are translated, and the new post is
+ * saved as a draft. Medias: title, description, caption and alternative text are translated when
+ * Polylang creates the media translation.
+ *
+ * DeepL errors never break WordPress: the content is left untranslated, the error is logged and,
+ * for posts, displayed once to the user in the editor.
+ */
 class VP_Polylang_Deepl
 {
-    // true while a translated post is being saved, prevents translation loops
+    /**
+     * True once a translated post has been saved in this request, prevents translation loops
+     * (wp_update_post() triggers pll_save_post again).
+     */
     private static bool $translating = false;
 
-    static function is_active()
+    /**
+     * Whether automatic translation can run: Polylang active, DeepL library loaded and API key set.
+     */
+    static function is_active(): bool
     {
         return self::check_polylang() && self::check_deepl_library() && self::check_deepl_api();
     }
 
-    static function check_polylang()
+    /**
+     * Whether Polylang (or Polylang Pro) is active.
+     */
+    static function check_polylang(): bool
     {
         return class_exists('Polylang');
     }
 
-    static function check_deepl_library()
+    /**
+     * Whether the DeepL PHP library (deeplcom/deepl-php) is loaded.
+     */
+    static function check_deepl_library(): bool
     {
         return class_exists('\DeepL\DeepLClient');
     }
 
-    static function check_deepl_api()
+    /**
+     * Whether a DeepL API key is defined (see api_key()).
+     */
+    static function check_deepl_api(): bool
     {
         return self::api_key() !== '';
     }
 
-    // DeepL API key: $_ENV (Bedrock dotenv), then real environment variable, then DEEPL constant
+    /**
+     * DeepL API key.
+     *
+     * Looked up in this order: `$_ENV['DEEPL']` (Bedrock dotenv), the `DEEPL` environment variable
+     * (getenv), then the `DEEPL` constant.
+     *
+     * @return string API key, or an empty string if not defined.
+     */
     static function api_key(): string
     {
         if (!empty($_ENV['DEEPL'])) {
@@ -41,7 +74,16 @@ class VP_Polylang_Deepl
         return '';
     }
 
-    static function report_error(string $context, \Throwable $e, bool $notify_user)
+    /**
+     * Logs a translation error, and optionally keeps it to be displayed once to the current user.
+     *
+     * The message is kept 5 minutes in a transient, read by pop_user_error().
+     *
+     * @param string $context Short description of what was translated, for the log (e.g. "post 42").
+     * @param \Throwable $e Error thrown during the translation.
+     * @param bool $notify_user Whether to display the error to the current user.
+     */
+    static function report_error(string $context, \Throwable $e, bool $notify_user): void
     {
         error_log('[wp-polylang-deepl] ' . $context . ' : ' . get_class($e) . ' : ' . $e->getMessage());
 
@@ -51,7 +93,12 @@ class VP_Polylang_Deepl
         }
     }
 
-    static function pop_user_error()
+    /**
+     * Gets and deletes the translation error kept for the current user by report_error().
+     *
+     * @return string|null Message to display (not escaped), or null if there is no error.
+     */
+    static function pop_user_error(): ?string
     {
         $user_id = get_current_user_id();
         if (!$user_id) {
@@ -66,7 +113,19 @@ class VP_Polylang_Deepl
         return 'La traduction automatique DeepL a échoué, le contenu n\'a pas été traduit. Erreur : ' . $message;
     }
 
-    static function translate_blocks_collect(array &$blocks, array &$collector)
+    /**
+     * Collects references to the translatable strings of ACF blocks, recursively.
+     *
+     * Inner blocks are always visited, whatever the parent block is (core/group, core/columns…).
+     * A value is collected if it is a non empty, non numeric string, its key does not start with `_`
+     * (ACF field key references), and its field type is translatable (see is_translatable_field()).
+     * Core blocks content (innerHTML) is not translated.
+     *
+     * @param array $blocks Blocks, as returned by parse_blocks(). Modified through the references.
+     * @param array $collector Receives references to the strings: assigning a value to an entry
+     *                         changes the matching block attribute.
+     */
+    static function translate_blocks_collect(array &$blocks, array &$collector): void
     {
         // put all references to translatable strings in the collector
         foreach ($blocks as &$block) {
@@ -88,7 +147,20 @@ class VP_Polylang_Deepl
         }
     }
 
-    // only translate ACF fields whose value is reader-facing text (not select values, urls, colors...)
+    /**
+     * Whether an ACF block value holds reader-facing text, based on its ACF field type.
+     *
+     * The field key is read from `_<name>` (also for repeater sub fields, e.g. `_items_0_title`),
+     * or from the data key itself when it is a field key (`field_…`). Only `text`, `textarea` and
+     * `wysiwyg` fields are translated, so select values, urls, colors… are kept as is.
+     * When the field type can't be resolved (deleted field, ACF not loaded…), the value is translated.
+     *
+     * Filterable with `vp_polylang_deepl_translatable_field_types` (array of ACF field types).
+     *
+     * @param array $data ACF block data (`attrs.data`).
+     * @param string $key Data key of the value.
+     * @return bool
+     */
     static function is_translatable_field(array $data, string $key): bool
     {
         // ACF stores the field key in "_<name>", or sometimes uses the field key as data key
@@ -102,7 +174,21 @@ class VP_Polylang_Deepl
         return in_array($field['type'], (array) $types, true);
     }
 
-    // convert a WordPress locale (fr_FR, en_AU, pt_PT_ao90, zh_TW...) to a DeepL language code
+    /**
+     * Converts a WordPress locale to a DeepL language code.
+     *
+     * Source language: base code only (`en_US` → `en`), as required by DeepL.
+     * Target language: `en_US` → `en-US`, other `en_*` → `en-GB`; `pt_BR` → `pt-BR`, other `pt_*`
+     * (including `pt_PT_ao90`) → `pt-PT`; `zh_TW`, `zh_HK`, `zh_MO` → `zh-Hant`, other `zh_*` →
+     * `zh-Hans`; any other locale → base code (`fr_FR` → `fr`, `fil` → `fil`).
+     *
+     * Filterable with `vp_polylang_deepl_lang` ($code, $locale, $target).
+     *
+     * @param string|false $locale WordPress locale, as returned by pll_get_post_language($id, 'locale').
+     * @param bool $target True for the target language, false for the source language.
+     * @return string DeepL language code.
+     * @throws \RuntimeException If the post has no language.
+     */
     static function deepl_lang(string|false $locale, bool $target): string
     {
         if (!$locale) {
@@ -128,8 +214,16 @@ class VP_Polylang_Deepl
     const MAX_TEXTS_PER_REQUEST = 50;
     const MAX_BYTES_PER_REQUEST = 100 * 1024; // margin for request overhead
 
-    // split texts into chunks respecting DeepL request limits
-    static function chunk_texts(array $texts)
+    /**
+     * Splits texts into chunks respecting DeepL request limits.
+     *
+     * A chunk holds at most MAX_TEXTS_PER_REQUEST texts and MAX_BYTES_PER_REQUEST bytes, except a
+     * single text bigger than the bytes limit, which gets its own chunk.
+     *
+     * @param array $texts Texts to translate.
+     * @return array<string[]> Chunks of texts, in the original order.
+     */
+    static function chunk_texts(array $texts): array
     {
         $chunks = [];
         $chunk = [];
@@ -150,8 +244,16 @@ class VP_Polylang_Deepl
         return $chunks;
     }
 
-    // translate a list of texts, returns translated strings in the same order
-    static function translate_texts(array $texts, string $from_lang, string $to_lang)
+    /**
+     * Translates a list of texts with DeepL, in as many requests as needed (see chunk_texts()).
+     *
+     * @param array $texts Texts to translate.
+     * @param string $from_lang DeepL source language code (see deepl_lang()).
+     * @param string $to_lang DeepL target language code (see deepl_lang()).
+     * @return string[] Translated texts, in the same order as $texts.
+     * @throws \Throwable On any DeepL error, or if DeepL does not return one text per text sent.
+     */
+    static function translate_texts(array $texts, string $from_lang, string $to_lang): array
     {
         $deeplClient = new \DeepL\DeepLClient(VP_Polylang_Deepl::api_key());
         $translated = [];
@@ -166,7 +268,19 @@ class VP_Polylang_Deepl
         return $translated;
     }
 
-    static function pll_save_post($post_id, $post, $translations)
+    /**
+     * Translates a new post translation created from the Polylang interface (pll_save_post action).
+     *
+     * Runs only for the post being created by a "add translation" link (`from_post` and `new_lang`
+     * request parameters), when the source post exists and the current user can read it.
+     * Translates the source title and ACF blocks, then saves the new post as a draft.
+     * On a DeepL error, the post is left as Polylang created it and the error is reported.
+     *
+     * @param int $post_id Id of the saved post.
+     * @param \WP_Post $post Saved post.
+     * @param int[] $translations Post ids of the translations, keyed by language slug.
+     */
+    static function pll_save_post($post_id, $post, $translations): void
     {
         if (empty($_REQUEST['from_post']) || empty($_REQUEST['new_lang'])) {
             return;
@@ -233,7 +347,18 @@ class VP_Polylang_Deepl
         }
     }
 
-    static function pll_translate_media($from_id, $to_id, $lang)
+    /**
+     * Translates a new media translation created by Polylang (pll_translate_media action).
+     *
+     * Translates the title, description, caption and alternative text of the new media.
+     * On a DeepL error, the media is left untranslated and the error is logged only (medias are often
+     * translated during an ajax upload, where a notice can't be displayed).
+     *
+     * @param int $from_id Id of the source media.
+     * @param int $to_id Id of the new media translation.
+     * @param string $lang Language slug of the new media translation.
+     */
+    static function pll_translate_media($from_id, $to_id, $lang): void
     {
         $to_post = get_post($to_id);
 

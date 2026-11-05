@@ -1,8 +1,18 @@
 <?php
 
+/**
+ * Admin side of the plugin: hooks registration, error notices and settings page
+ * (Languages > Deepl auto-translate).
+ */
 class VP_Polylang_Deepl_Admin
 {
-    static function init()
+    /**
+     * Registers the admin hooks. Called on plugins_loaded, so Polylang is already loaded.
+     *
+     * The settings page is always available, to show what is missing. Translation hooks are
+     * registered only when the plugin is active (see VP_Polylang_Deepl::is_active()).
+     */
+    static function init(): void
     {
         add_action('admin_menu', [static::class, 'admin_menu'], 9999);
 
@@ -14,8 +24,12 @@ class VP_Polylang_Deepl_Admin
         }
     }
 
-    // classic screens: standard admin notice
-    static function admin_notices()
+    /**
+     * Displays the last translation error of the current user, on classic admin screens.
+     *
+     * Skipped in the block editor, where classic notices are hidden (see block_editor_notices()).
+     */
+    static function admin_notices(): void
     {
         $screen = function_exists('get_current_screen') ? get_current_screen() : null;
         if ($screen && method_exists($screen, 'is_block_editor') && $screen->is_block_editor()) {
@@ -27,8 +41,13 @@ class VP_Polylang_Deepl_Admin
         }
     }
 
-    // block editor: classic admin notices are hidden, use the editor notices store
-    static function block_editor_notices()
+    /**
+     * Displays the last translation error of the current user in the block editor.
+     *
+     * Classic admin notices are hidden by the block editor: the error is added to the editor
+     * notices store (core/notices) by an inline script.
+     */
+    static function block_editor_notices(): void
     {
         $message = VP_Polylang_Deepl::pop_user_error();
         if ($message) {
@@ -40,12 +59,18 @@ class VP_Polylang_Deepl_Admin
         }
     }
 
-    static function admin_menu()
+    /**
+     * Adds the settings page under the Polylang "Languages" menu.
+     */
+    static function admin_menu(): void
     {
         add_submenu_page('mlang', 'VP Polylang Deepl', 'Deepl auto-translate', 'manage_options', 'vp-polylang-deepl', [static::class, 'render'], 9999);
     }
 
-    static function render()
+    /**
+     * Renders the settings page: missing requirements, or DeepL usage (characters used / limit).
+     */
+    static function render(): void
     {
         // list of [type, html message], type is a WordPress notice type (warning, error, success)
         $notices = [];
