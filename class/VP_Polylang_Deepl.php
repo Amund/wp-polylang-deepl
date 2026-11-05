@@ -29,6 +29,31 @@ class VP_Polylang_Deepl
         return isset($_ENV['DEEPL']) && !empty($_ENV['DEEPL']);
     }
 
+    static function report_error(string $context, \Throwable $e, bool $notify_user)
+    {
+        error_log('[wp-polylang-deepl] ' . $context . ' : ' . get_class($e) . ' : ' . $e->getMessage());
+
+        $user_id = get_current_user_id();
+        if ($notify_user && $user_id) {
+            set_transient('vp_polylang_deepl_error_' . $user_id, $e->getMessage(), 5 * MINUTE_IN_SECONDS);
+        }
+    }
+
+    static function pop_user_error()
+    {
+        $user_id = get_current_user_id();
+        if (!$user_id) {
+            return null;
+        }
+        $key = 'vp_polylang_deepl_error_' . $user_id;
+        $message = get_transient($key);
+        if ($message === false) {
+            return null;
+        }
+        delete_transient($key);
+        return 'La traduction automatique DeepL a échoué, le contenu n\'a pas été traduit. Erreur : ' . $message;
+    }
+
     static function translate_blocks_collect(array &$blocks, array &$collector)
     {
         // put all references to translatable strings in the collector
@@ -89,13 +114,19 @@ class VP_Polylang_Deepl
             }
 
             if (!empty($collector)) {
-                // translate all strings
-                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-                $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+                // translate all strings, leave the post untouched on any failure
+                try {
+                    $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+                    $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
 
-                // replace all referenced strings with translated strings
-                foreach ($collector as $index => &$reference) {
-                    $reference = $translated[$index]->text;
+                    // replace all referenced strings with translated strings
+                    foreach ($collector as $index => &$reference) {
+                        $reference = $translated[$index]->text;
+                    }
+                    unset($reference);
+                } catch (\Throwable $e) {
+                    self::report_error('post ' . $post_id, $e, true);
+                    return;
                 }
 
                 // update post content with translated blocks
@@ -145,13 +176,19 @@ class VP_Polylang_Deepl
         }
 
         if (!empty($collector)) {
-            // translate all strings
-            $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-            $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
+            // translate all strings, leave the media untouched on any failure
+            try {
+                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+                $translated = $deeplClient->translateText($collector, $from_lang, $to_lang);
 
-            // replace all referenced strings with translated strings
-            foreach ($collector as $index => &$reference) {
-                $reference = $translated[$index]->text;
+                // replace all referenced strings with translated strings
+                foreach ($collector as $index => &$reference) {
+                    $reference = $translated[$index]->text;
+                }
+                unset($reference);
+            } catch (\Throwable $e) {
+                self::report_error('media ' . $to_id, $e, false);
+                return;
             }
 
             // save translated post

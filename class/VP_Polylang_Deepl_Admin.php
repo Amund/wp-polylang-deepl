@@ -9,6 +9,34 @@ class VP_Polylang_Deepl_Admin
         if (VP_Polylang_Deepl::is_active()) {
             add_action('pll_save_post', [VP_Polylang_Deepl::class, 'pll_save_post'], 1, 3);
             add_action('pll_translate_media', [VP_Polylang_Deepl::class, 'pll_translate_media'], 100, 3);
+            add_action('admin_notices', [static::class, 'admin_notices']);
+            add_action('enqueue_block_editor_assets', [static::class, 'block_editor_notices']);
+        }
+    }
+
+    // classic screens: standard admin notice
+    static function admin_notices()
+    {
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if ($screen && method_exists($screen, 'is_block_editor') && $screen->is_block_editor()) {
+            return; // handled by block_editor_notices()
+        }
+        $message = VP_Polylang_Deepl::pop_user_error();
+        if ($message) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($message) . '</p></div>';
+        }
+    }
+
+    // block editor: classic admin notices are hidden, use the editor notices store
+    static function block_editor_notices()
+    {
+        $message = VP_Polylang_Deepl::pop_user_error();
+        if ($message) {
+            wp_add_inline_script(
+                'wp-edit-post', // depends on wp-data, wp-notices and wp-dom-ready
+                'wp.domReady(function(){wp.data.dispatch("core/notices").createNotice("error",' . wp_json_encode($message) . ',{isDismissible:true});});',
+                'after'
+            );
         }
     }
 
@@ -46,9 +74,21 @@ class VP_Polylang_Deepl_Admin
                 ];
             }
         } else {
-            $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
-            $usage = $deeplClient->getUsage();
-            if ($usage->character) {
+            $usage = null;
+            try {
+                $deeplClient = new \DeepL\DeepLClient($_ENV['DEEPL']);
+                $usage = $deeplClient->getUsage();
+            } catch (\Throwable $e) {
+                VP_Polylang_Deepl::report_error('usage', $e, false);
+                $status_deepl = [
+                    'tag' => 'p',
+                    'class' => 'notice notice-error',
+                    'content' => 'Impossible de contacter DeepL : ' . esc_html($e->getMessage()),
+                ];
+            }
+            if ($usage === null) {
+                // error already reported above
+            } elseif ($usage->character) {
                 $count = number_format($usage->character->count, 0, ',', ' ');
                 $limit = number_format($usage->character->limit, 0, ',', ' ');
                 if ($usage->character->count >= $usage->character->limit) {
