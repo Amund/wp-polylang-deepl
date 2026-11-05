@@ -1,76 +1,112 @@
-# Polylang Deepl
+![GitHub Tag](https://img.shields.io/github/v/tag/Amund/wp-polylang-deepl)
+![Static Badge](https://img.shields.io/badge/wordpress-plugin-blue)
 
-Traduction automatique des posts et des médias avec [DeepL](https://www.deepl.com/), au moment où [Polylang](https://polylang.pro/) crée une traduction.
+# wp-polylang-deepl
 
-## Prérequis
+**wp-polylang-deepl** is a WordPress plugin that automatically translates posts and medias with [DeepL](https://www.deepl.com/) when a translation is created with [Polylang](https://polylang.pro/).
 
-- PHP 8.1 ou plus, WordPress 6.1 ou plus
-- Polylang ou Polylang Pro
-- Une clé d'API DeepL (gratuite ou payante)
-- Des contenus en blocs ACF : le texte des blocs core n'est pas traduit (voir [Limites](#limites))
+## Features
+
+- Translates the title and the text fields of ACF blocks when a post translation is added from the Polylang interface, including nested blocks and repeaters.
+- Saves the translated post as a draft, to be reviewed before publication.
+- Translates the title, description, caption and alternative text of medias when Polylang creates their translation.
+- Never breaks WordPress on a DeepL error: the content is left untranslated and the error is reported.
+- Settings page showing the missing requirements, or the DeepL characters used on the quota.
+
+## Requirements
+
+- PHP 8.1 or later
+- WordPress 6.1 or later
+- Polylang or Polylang Pro
+- A DeepL API key (free or pro)
+- The [DeepL PHP library](https://github.com/DeepLcom/deepl-php) (`deeplcom/deepl-php`), installed as a dependency with Composer
+- Content made of ACF blocks: the text of core blocks is not translated (see [Known limitations](#known-limitations))
 
 ## Installation
 
-Avec Composer, par exemple sur un site [Bedrock](https://roots.io/bedrock/) :
+### With Composer
 
-```bash
+1. Add the repository to your `composer.json` file:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/Amund/wp-polylang-deepl.git"
+        }
+    ]
+}
+```
+
+2. Install the plugin:
+
+```sh
 composer require amund/wp-polylang-deepl
 ```
 
-La bibliothèque `deeplcom/deepl-php` est installée en dépendance.
+The package type is `wordpress-plugin`: with [Bedrock](https://roots.io/bedrock/), it is installed in `web/app/plugins/`. Activate it from the "Plugins" menu of the WordPress admin.
 
-Ensuite, définir la clé d'API DeepL, au choix :
+### Manually
 
-- dans le `.env` (Bedrock) ou en variable d'environnement : `DEEPL="ma-cle-api"`
-- en constante, dans `wp-config.php` ou `config/application.php` : `define('DEEPL', 'ma-cle-api');`
+Copy the plugin folder into `wp-content/plugins/` and activate it from the "Plugins" menu of the WordPress admin. The DeepL PHP library must be loaded by another way (e.g. the Composer autoloader of the site).
 
-La page **Langues > Deepl auto-translate** indique ce qui manque, ou le nombre de caractères DeepL utilisés sur le quota.
+## Configuration
 
-## Fonctionnement
+Define the DeepL API key, as one of:
+
+- an entry of the `.env` file (Bedrock) or an environment variable: `DEEPL="my-api-key"`
+- a constant, in `wp-config.php` or `config/application.php`: `define('DEEPL', 'my-api-key');`
+
+The key is looked up in this order: `$_ENV['DEEPL']`, `getenv('DEEPL')`, then the `DEEPL` constant.
+
+The **Languages > Deepl auto-translate** page shows what is missing, or the number of DeepL characters used on the quota.
+
+## How it works
 
 ### Posts
 
-Quand on ajoute une traduction depuis l'interface Polylang (le « + » dans la liste des posts ou dans l'éditeur), le plugin :
+When a translation is added from the Polylang interface (the "+" in the posts list or in the editor), the plugin:
 
-1. reprend le titre et les blocs du post source ;
-2. traduit le titre et les champs texte des blocs ACF, y compris dans les blocs imbriqués (`core/group`, `core/columns`…) et les répéteurs ;
-3. enregistre la traduction en **brouillon**, à relire avant publication.
+1. copies the title and the blocks of the source post;
+2. translates the title and the text fields of ACF blocks, including blocks nested in core blocks (`core/group`, `core/columns`...) and repeater sub fields;
+3. saves the translation as a **draft**.
 
-Seuls les champs ACF de type `text`, `textarea` et `wysiwyg` sont traduits. Les valeurs de select, les URL, les couleurs… restent identiques à la source. Un champ dont le type est introuvable (champ supprimé, ACF non chargé) est traduit.
+Only ACF fields of type `text`, `textarea` and `wysiwyg` are translated, so select values, urls, colors... are kept as is. A field whose type cannot be resolved (deleted field, ACF not loaded...) is translated.
 
-La traduction n'a lieu que si l'utilisateur a le droit de lire le post source.
+The translation only runs if the current user can read the source post.
 
-### Médias
+### Medias
 
-Quand Polylang crée la traduction d'un média, le titre, la description, la légende et le texte alternatif sont traduits.
+When Polylang creates the translation of a media, its title, description, caption and alternative text are translated.
 
-### Erreurs
+### Errors
 
-Une erreur DeepL (quota atteint, clé invalide, réseau, langue non supportée…) ne bloque jamais WordPress : le contenu reste non traduit, comme si le plugin était désactivé.
+A DeepL error (quota reached, invalid key, network, unsupported language...) never breaks WordPress: the content is left untranslated, as if the plugin was not active.
 
-L'erreur est écrite dans le log PHP, préfixée par `[wp-polylang-deepl]`. Pour les posts, elle est aussi affichée une fois dans l'éditeur.
+The error is written to the PHP error log, prefixed with `[wp-polylang-deepl]`. For posts, it is also displayed once in the editor.
 
-### Langues
+### Languages
 
-La langue source et la langue cible sont déduites des locales Polylang :
+The source and target languages come from the Polylang locales:
 
-| Locale WordPress | Code DeepL cible |
-|---|---|
-| `en_US` | `en-US` |
-| autres `en_*` (`en_GB`, `en_AU`, `en_CA`…) | `en-GB` |
-| `pt_BR` | `pt-BR` |
-| autres `pt_*` (`pt_PT`, `pt_PT_ao90`, `pt_AO`…) | `pt-PT` |
-| `zh_TW`, `zh_HK`, `zh_MO` | `zh-Hant` |
-| autres `zh_*` | `zh-Hans` |
-| toutes les autres (`fr_FR`, `de_DE`, `es_MX`…) | code de base (`fr`, `de`, `es`…) |
+| WordPress locale                                 | DeepL target code                   |
+| ------------------------------------------------ | ----------------------------------- |
+| `en_US`                                          | `en-US`                             |
+| other `en_*` (`en_GB`, `en_AU`, `en_CA`...)      | `en-GB`                             |
+| `pt_BR`                                          | `pt-BR`                             |
+| other `pt_*` (`pt_PT`, `pt_PT_ao90`, `pt_AO`...) | `pt-PT`                             |
+| `zh_TW`, `zh_HK`, `zh_MO`                        | `zh-Hant`                           |
+| other `zh_*`                                     | `zh-Hans`                           |
+| any other (`fr_FR`, `de_DE`, `es_MX`...)         | base code (`fr`, `de`, `es`...)     |
 
-En langue source, DeepL n'accepte que le code de base (`en`, `pt`, `zh`…).
+As a source language, DeepL only accepts the base code (`en`, `pt`, `zh`...).
 
-## Filtres
+## Filters
 
 ### `vp_polylang_deepl_translatable_field_types`
 
-Types de champs ACF traduits. Par défaut : `['text', 'textarea', 'wysiwyg']`.
+ACF field types to translate. Default: `['text', 'textarea', 'wysiwyg']`.
 
 ```php
 add_filter('vp_polylang_deepl_translatable_field_types', function (array $types) {
@@ -81,10 +117,10 @@ add_filter('vp_polylang_deepl_translatable_field_types', function (array $types)
 
 ### `vp_polylang_deepl_lang`
 
-Code de langue envoyé à DeepL, pour une locale donnée.
+DeepL language code sent for a locale.
 
 ```php
-// traduire en anglais américain pour le Canada
+// translate to American English for Canada
 add_filter('vp_polylang_deepl_lang', function (string $code, string $locale, bool $target) {
     if ($target && $locale === 'en_CA') {
         return 'en-US';
@@ -93,13 +129,9 @@ add_filter('vp_polylang_deepl_lang', function (string $code, string $locale, boo
 }, 10, 3);
 ```
 
-## Limites
+## Known limitations
 
-- Le texte des blocs core (paragraphes, titres…) et le contenu classique (hors blocs) ne sont pas traduits.
-- Le HTML des champs `wysiwyg` est envoyé à DeepL comme du texte (sans `tag_handling`). Les balises sont préservées en pratique, sans garantie.
-- Les shortcodes dans les champs texte peuvent être traduits par DeepL.
-- Chaque traduction consomme du quota DeepL, y compris si le brouillon créé est ensuite supprimé.
-
-## Licence
-
-MIT
+- **Core blocks**: the text of core blocks (paragraphs, headings...) and classic content (outside blocks) is not translated.
+- **HTML**: the HTML of `wysiwyg` fields is sent to DeepL as text (without `tag_handling`). Tags are preserved in practice, without guarantee.
+- **Shortcodes**: shortcodes in text fields may be translated by DeepL.
+- **Quota**: each translation uses DeepL characters, even if the created draft is deleted afterwards.
