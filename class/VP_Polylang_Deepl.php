@@ -90,6 +90,28 @@ class VP_Polylang_Deepl
         return in_array($field['type'], (array) $types, true);
     }
 
+    // convert a WordPress locale (fr_FR, en_AU, pt_PT_ao90, zh_TW...) to a DeepL language code
+    static function deepl_lang(string|false $locale, bool $target): string
+    {
+        if (!$locale) {
+            throw new \RuntimeException('No Polylang language for this post');
+        }
+        $parts = explode('_', $locale);
+        $lang = strtolower($parts[0]); // also handles 3-letter codes
+        $region = strtoupper($parts[1] ?? '');
+
+        $code = $lang; // source language: DeepL only accepts the base code
+        if ($target) {
+            $code = match ($lang) {
+                'en' => $region === 'US' ? 'en-US' : 'en-GB',
+                'pt' => $region === 'BR' ? 'pt-BR' : 'pt-PT',
+                'zh' => in_array($region, ['TW', 'HK', 'MO'], true) ? 'zh-Hant' : 'zh-Hans',
+                default => $lang,
+            };
+        }
+        return (string) apply_filters('vp_polylang_deepl_lang', $code, $locale, $target);
+    }
+
     // DeepL API limits: 50 texts and 128 KiB per request
     const MAX_TEXTS_PER_REQUEST = 50;
     const MAX_BYTES_PER_REQUEST = 100 * 1024; // margin for request overhead
@@ -146,17 +168,8 @@ class VP_Polylang_Deepl
             !defined('TRANSLATED')
         ) {
             // get source
-            $from_lang = pll_get_post_language($_REQUEST['from_post'], 'slug');
             $from_post = get_post($_REQUEST['from_post']);
             $from_content = $from_post->post_content;
-
-            // normalize language code to match deepl api requirements
-            $to_lang = pll_get_post_language($post->ID, 'locale');
-            if (in_array($to_lang, ['en_GB', 'en_US', 'pt_BR', 'pt_PT'])) {
-                $to_lang = str_replace('_', '-', $to_lang);
-            } else {
-                $to_lang = substr($to_lang, 0, 2);
-            }
 
             // collect all references of strings to translate
             $collector = [];
@@ -175,6 +188,8 @@ class VP_Polylang_Deepl
             if (!empty($collector)) {
                 // translate all strings, leave the post untouched on any failure
                 try {
+                    $from_lang = self::deepl_lang(pll_get_post_language($from_post->ID, 'locale'), false);
+                    $to_lang = self::deepl_lang(pll_get_post_language($post->ID, 'locale'), true);
                     $translated = self::translate_texts($collector, $from_lang, $to_lang);
 
                     // replace all referenced strings with translated strings
@@ -204,15 +219,6 @@ class VP_Polylang_Deepl
 
     static function pll_translate_media($from_id, $to_id, $lang)
     {
-        $from_lang = pll_get_post_language($from_id, 'slug');
-
-        // normalize language code to match deepl api requirements
-        $to_lang = pll_get_post_language($to_id, 'locale');
-        if (in_array($to_lang, ['en_GB', 'en_US', 'pt_BR', 'pt_PT'])) {
-            $to_lang = str_replace('_', '-', $to_lang);
-        } else {
-            $to_lang = substr($to_lang, 0, 2);
-        }
         $to_post = get_post($to_id);
 
         // collect all references of strings to translate
@@ -236,6 +242,8 @@ class VP_Polylang_Deepl
         if (!empty($collector)) {
             // translate all strings, leave the media untouched on any failure
             try {
+                $from_lang = self::deepl_lang(pll_get_post_language($from_id, 'locale'), false);
+                $to_lang = self::deepl_lang(pll_get_post_language($to_id, 'locale'), true);
                 $translated = self::translate_texts($collector, $from_lang, $to_lang);
 
                 // replace all referenced strings with translated strings
